@@ -1,0 +1,219 @@
+<!DOCTYPE html5>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Vlna ONLINE</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        text-align: center;
+        padding: 30px;
+        margin: auto;
+        max-width: 700px;
+      }
+      textarea {
+        display: block;
+        width: 100%;
+        padding: 10px;
+        margin: 10px 0;
+        border-radius: 5px;
+        border: 2px solid #d8dee9;
+      }
+      input {
+        padding: 10px;
+        border-radius: 5px;
+        border: 2px solid #d8dee9;
+      }
+      button {
+        padding: 10px;
+        border-radius: 5px;
+        background: #5e81ac;
+        border: none;
+        color: white;
+        outline: 0;
+      }
+      button:hover {
+        background: #5e81acdd;
+      }
+      .spinner {
+        height: 50px;
+        width: 50px;
+        margin: 0px auto;
+        -webkit-animation: rotation 0.8s linear infinite;
+        -moz-animation: rotation 0.8s linear infinite;
+        -o-animation: rotation 0.8s linear infinite;
+        animation: rotation 0.8s linear infinite;
+        border-left: 10px solid #5e81ac;
+        border-right: 10px solid #5e81ac;
+        border-bottom: 10px solid #5e81ac;
+        border-top: 10px solid transparent;
+        border-radius: 100%;
+      }
+      @-webkit-keyframes rotation {
+        from {
+          -webkit-transform: rotate(0deg);
+        }
+        to {
+          -webkit-transform: rotate(360deg);
+        }
+      }
+      @-moz-keyframes rotation {
+        from {
+          -moz-transform: rotate(0deg);
+        }
+        to {
+          -moz-transform: rotate(360deg);
+        }
+      }
+      @-o-keyframes rotation {
+        from {
+          -o-transform: rotate(0deg);
+        }
+        to {
+          -o-transform: rotate(360deg);
+        }
+      }
+      @keyframes rotation {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Vlna ONLINE</h1>
+
+    <figure style="overflow: visible" id="spinner">
+      <div class="spinner"></div>
+    </figure>
+    <div id="status">Downloading...</div>
+    <div>
+      <progress value="0" max="100" id="progress" hidden="1"></progress>
+    </div>
+
+    Input:
+    <textarea id="inputData" rows="24"></textarea>
+    <div>
+      <input id="flags" value="-l -m -n" />
+      <button id="run">Run</button>
+    </div>
+    <br />
+
+    Log:
+    <textarea id="output" rows="16"></textarea>
+
+    <script type="text/javascript">
+      var statusElement = document.getElementById("status");
+      var progressElement = document.getElementById("progress");
+      var spinnerElement = document.getElementById("spinner");
+
+      var Module = {};
+      var scriptElement;
+
+      var printOutput = (function () {
+        var element = document.getElementById("output");
+        if (element) element.value = ""; // clear browser cache
+        return function (text) {
+          if (arguments.length > 1)
+            text = Array.prototype.slice.call(arguments).join(" ");
+          // These replacements are necessary if you render to raw HTML
+          //text = text.replace(/&/g, "&amp;");
+          //text = text.replace(/</g, "&lt;");
+          //text = text.replace(/>/g, "&gt;");
+          //text = text.replace('\n', '<br>', 'g');
+          console.log(text);
+          if (element) {
+            element.value += text + "\n";
+            element.scrollTop = element.scrollHeight; // focus on bottom
+          }
+        };
+      })();
+
+      function runModule() {
+        Module = {
+          print: printOutput,
+          printErr: printOutput,
+          setStatus: function (text) {
+            if (!Module.setStatus.last)
+              Module.setStatus.last = { time: Date.now(), text: "" };
+            if (text === Module.setStatus.last.text) return;
+            var m = text.match(/([^(]+)\((\d+(\.\d+)?)\/(\d+)\)/);
+            var now = Date.now();
+            if (m && now - Module.setStatus.last.time < 30) return; // if this is a progress update, skip it if too soon
+            Module.setStatus.last.time = now;
+            Module.setStatus.last.text = text;
+            if (m) {
+              text = m[1];
+              progressElement.value = parseInt(m[2]) * 100;
+              progressElement.max = parseInt(m[4]) * 100;
+              progressElement.hidden = false;
+              spinnerElement.hidden = false;
+            } else {
+              progressElement.value = null;
+              progressElement.max = null;
+              progressElement.hidden = true;
+              if (!text) spinnerElement.hidden = true;
+            }
+            statusElement.innerHTML = text;
+          },
+          totalDependencies: 0,
+          monitorRunDependencies: function (left) {
+            this.totalDependencies = Math.max(this.totalDependencies, left);
+            Module.setStatus(
+              left
+                ? "Preparing... (" +
+                    (this.totalDependencies - left) +
+                    "/" +
+                    this.totalDependencies +
+                    ")"
+                : "All downloads complete."
+            );
+          },
+        };
+        window.Module = Module;
+
+        Module.setStatus("Downloading...");
+        window.onerror = function () {
+          Module.setStatus("Exception thrown, see JavaScript console");
+          spinnerElement.style.display = "none";
+          Module.setStatus = function (text) {
+            if (text) Module.printErr("[post-exception status] " + text);
+          };
+        };
+
+        scriptElement = document.createElement("script");
+        scriptElement.src = "vlna.js";
+        document.body.appendChild(scriptElement);
+      }
+      runModule();
+
+      document.getElementById("run").onclick = function () {
+        var flags = document.getElementById("flags").value.split(" ");
+        calledRun = false;
+        Module.calledRun = false;
+        Module.preRun = [
+          function () {
+            console.log("Running");
+            var element = document.getElementById("inputData");
+            console.log(element.value);
+            FS.writeFile("input", element.value);
+          },
+        ];
+        Module.postRun = [
+          function () {
+            console.log("Post run");
+            var contents = FS.readFile("input", { encoding: "utf8" });
+            var element = document.getElementById("inputData");
+            element.value = contents;
+            console.log(contents);
+          },
+        ];
+        run([...flags, "input"]);
+      };
+    </script>
+  </body>
+</html>
